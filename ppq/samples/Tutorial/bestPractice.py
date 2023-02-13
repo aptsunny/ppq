@@ -17,7 +17,8 @@ QS          = QuantizationSettingFactory.default_setting()
 def collate_fn(batch: torch.Tensor) -> torch.Tensor:
     return batch.to(DEVICE)
 
-model = torchvision.models.mobilenet.mobilenet_v2(pretrained=True)
+# model = torchvision.models.mobilenet.mobilenet_v2(pretrained=True)
+model = torchvision.models.vgg.vgg11(pretrained=True)
 model = model.to(DEVICE)
 
 # ------------------------------------------------------------
@@ -56,7 +57,9 @@ for op_name, _ in sensitivity[: 10]:
 # 在这里我们只推荐你更改激活值的校准算法，对于参数而言
 # 在 INT8 的量化场景中，minmax 往往都是最好的校准策略
 # ------------------------------------------------------------
-for calib_algo in {'minmax', 'percentile', 'kl', 'mse', 'isotone'}:
+# for calib_algo in {'minmax', 'percentile', 'kl', 'mse', 'isotone'}: # mbv2 isotone 会挂
+# for calib_algo in {'minmax', 'percentile', 'kl', 'mse'}:
+for calib_algo in {'minmax'}:
     QS.quantize_activation_setting.calib_algorithm = calib_algo
 
     with ENABLE_CUDA_KERNEL():
