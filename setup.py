@@ -7,7 +7,7 @@ def readme():
     return content
 
 setup(author='ppq',
-      author_email='dcp-ppq@sensetime.com',
+      author_email='dcp@xxx.com',
       description='PPQ is an offline quantization tools',
       long_description=readme(),
       long_description_content_type='text/markdown',

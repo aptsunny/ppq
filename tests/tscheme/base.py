@@ -9,6 +9,7 @@ class PPQTestScheme():
         self.export_platform = export_platform
         self.setting = setting
 
+# PPL instead of ST
 TEST_SCHEMES = [
     PPQTestScheme(
         name = 'Tengine',
@@ -29,25 +30,25 @@ TEST_SCHEMES = [
         setting=QuantizationSettingFactory.default_setting()),
     
     PPQTestScheme(
-        name = 'Sensetime Caffe[DSP INT8]',
+        name = 'PPL Caffe[DSP INT8]',
         quant_platform=TargetPlatform.PPL_DSP_INT8, 
         export_platform=TargetPlatform.PPL_DSP_INT8, 
         setting=QuantizationSettingFactory.dsp_setting()),
     
     PPQTestScheme(
-        name = 'Sensetime Caffe[DSP INT8]',
+        name = 'PPL Caffe[DSP INT8]',
         quant_platform=TargetPlatform.SNPE_INT8, 
         export_platform=TargetPlatform.SNPE_INT8, 
         setting=QuantizationSettingFactory.dsp_setting()),
 
     PPQTestScheme(
-        name = 'Sensetime PPL[GPU INT8]',
+        name = 'PPL PPL[GPU INT8]',
         quant_platform=TargetPlatform.PPL_CUDA_INT8, 
         export_platform=TargetPlatform.PPL_CUDA_INT8, 
         setting=QuantizationSettingFactory.pplcuda_setting()),
 
     PPQTestScheme(
-        name = 'Sensetime PPL[GPU INT8 - ONNX RUNTIME EXPORT]',
+        name = 'PPL PPL[GPU INT8 - ONNX RUNTIME EXPORT]',
         quant_platform=TargetPlatform.PPL_CUDA_INT8, 
         export_platform=TargetPlatform.ONNXRUNTIME, 
         setting=QuantizationSettingFactory.pplcuda_setting()),
