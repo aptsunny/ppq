@@ -150,3 +150,41 @@ class NaiveLogger(object):
             if handler._file_name is not None:
                 handler._fd.close()
             self._handlers.pop(file_name)
+
+
+def print_dict_table(dictionary):
+    # 计算列宽
+    key_width = max([len(key) for key in dictionary.keys()]) + 2
+    value_width = max([len(str(value)) for value in dictionary.values()]) + 2
+    index_width = len(str(len(dictionary))) + 2
+
+    # 打印表头
+    print(f"+{'-' * index_width}+{'-' * key_width}+{'-' * value_width}+")
+    print(f"| {'Index':<{index_width}} | {'Key':<{key_width}} | {'Value':<{value_width}} |")
+
+    # 打印表格内容
+    for index, (key, value) in enumerate(dictionary.items(), start=1):
+        print(f"| {index:<{index_width}} | {key:<{key_width}} | {str(value):<{value_width}} |")
+
+    # 打印表格底部线
+    print(f"+{'-' * index_width}+{'-' * key_width}+{'-' * value_width}+")
+
+
+def print_table(list1, list2):
+    # 计算列宽
+    col1_width = max([len(str(i)) for i in range(1, len(list1) + 1)]) + 2
+    col2_width = max([len(item) for item in list1]) + 2
+    col3_width = max([len(item) for item in list2 if item in list1]) + 2
+
+    # 创建一个表格并打印表头
+    table = [['Index', 'OP', 'QuantOP']]
+    print(f"+{'-' * col1_width}+{'-' * col2_width}+{'-' * col3_width}+")
+    print(f"| {'Index':<{col1_width}} | {'OP':<{col2_width}} | {'QuantOP':<{col3_width}} |")
+
+    # 打印表格内容
+    for index, item1 in enumerate(list1, start=1):
+        row = [index, item1, "" if item1 not in list2 else item1]
+        print(f"| {row[0]:<{col1_width}} | {row[1]:<{col2_width}} | {'':<{col3_width}} |" if row[2] == "" else f"| {row[0]:<{col1_width}} | {row[1]:<{col2_width}} | {row[2]:<{col3_width}} |")
+
+    # 打印表格底部线
+    print(f"+{'-' * col1_width}+{'-' * col2_width}+{'-' * col3_width}+")

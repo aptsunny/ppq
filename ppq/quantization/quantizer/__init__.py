@@ -1,5 +1,5 @@
 from .base import BaseQuantizer
-from .DSPQuantizer import PPL_DSP_Quantizer, PPL_DSP_TI_Quantizer
+from .DSPQuantizer import PPL_DSP_Quantizer, PPL_DSP_TI_Quantizer, PPL_DSP_MFNR_Quantizer
 from .MetaxQuantizer import MetaxChannelwiseQuantizer, MetaxTensorwiseQuantizer
 from .MyQuantizer import ExtQuantizer
 from .NXPQuantizer import NXP_Quantizer

@@ -282,6 +282,15 @@ class BaseGraph(Serializable):
                 parameters.append(var.value)
         return parameters
 
+    def parameters_shape_dict(self) -> Dict:
+        parameters_shape_dict = {}
+        for var in self.variables.values():
+            if var.is_parameter:
+                parameters_shape_dict.update({var.name: var.value.shape})
+
+        import pprint
+        return pprint.pformat(parameters_shape_dict) # self._graph.parameters_shape_dict()
+
     def set_extension_attrib(self, attrib: str, value: Any):
         self._detail[attrib] = value
 
@@ -427,6 +436,7 @@ class BaseGraph(Serializable):
             raise ValueError('Can only insert op that has no input and output variable.')
         var = B.inputs[input_idx]
 
+        # 替换为量化节点输入
         var.dest_ops[var.dest_ops.index(B)] = A
         B.inputs[input_idx] = self.create_variable()
         B.inputs[input_idx].source_op = A
@@ -434,6 +444,58 @@ class BaseGraph(Serializable):
 
         A.inputs.append(var)
         A.outputs.append(B.inputs[input_idx])
+
+    def insert_normal_op_before(self, A: Operation, B: Operation, input_idx: int = 0, need_add_var: bool = False):
+        """Insert an op just before given op. This function will insert given
+        op A to variable B.inputs[input_idx]
+
+        Args:
+            A (Operation): Inserting Op, should has no input and output variable that links to it.
+            B (Operation): before this op.
+            input_idx (int, optional): For case that B has more than 1 input variable,
+                user should use parameter input_idx to identify which variable is used.
+        """
+        if input_idx >= B.num_of_input:
+            raise ValueError('Input index out of range.')
+        if A.num_of_input != 0 or A.num_of_output != 0:
+            pass
+            # raise ValueError('Can only insert op that has no input and output variable.')
+        print('insert before:', A.name, A.num_of_input, A.num_of_output)
+        var = B.inputs[input_idx]
+
+        var.dest_ops[var.dest_ops.index(B)] = A # 替换为量化节点输入
+        B.inputs[input_idx] = self.create_variable()
+        B.inputs[input_idx].source_op = A
+        B.inputs[input_idx].dest_ops.append(B)
+
+        # if need_add_var:
+        A.inputs.append(var)
+        A.outputs.append(B.inputs[input_idx])
+
+    def insert_normal_op_after(self, A: Operation, B: Operation, output_idx: int = 0):
+        """Insert an op just after given op. This function will insert given op
+        A to variable B.outputs[output_idx]
+
+        Args:
+            A (Operation): Inserting Op, should has no input and output variable that links to it.
+            B (Operation): after this op.
+            output_idx (int, optional): For case that B has more than 1 output variable,
+                user should use parameter output_idx to identify which variable is used.
+        """
+        if output_idx >= B.num_of_output:
+            raise ValueError('Output index out of range.')
+        # if A.num_of_input != 0 or A.num_of_output != 0:
+        #     raise ValueError('Can only insert op that has no input and output variable.')
+        print('insert after:',A.name, A.num_of_input, A.num_of_output)
+        var = B.outputs[output_idx]
+
+        var.source_op = A
+        B.outputs[output_idx] = self.create_variable()
+        B.outputs[output_idx].source_op = B
+        B.outputs[output_idx].dest_ops.append(A)
+
+        A.outputs.append(var)
+        A.inputs.append(B.outputs[output_idx])
 
     def insert_op_after(self, A: Operation, B: Operation, output_idx: int = 0):
         """Insert an op just after given op. This function will insert given op
@@ -920,16 +982,13 @@ class BaseGraph(Serializable):
         cloned._detail = self._detail.copy()
         return cloned
 
-
 class GraphBuilder(metaclass=SingletonMeta):
     @ abstractmethod
     def build(self, file_path: str, **kwargs) -> BaseGraph: pass
 
-
 class GraphExporter(metaclass=SingletonMeta):
     @ abstractmethod
     def export(self, file_path: str, graph: BaseGraph, config_path: str = None, **kwargs): pass
-
 
 class OperationExporter(metaclass=SingletonMeta):
     @ abstractmethod
