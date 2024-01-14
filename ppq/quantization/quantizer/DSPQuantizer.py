@@ -205,37 +205,6 @@ class PPL_DSP_MFNR_Quantizer(PPL_DSP_Quantizer):
         """
         super().__init__(graph)
         self.spec = spec
-        self.spec['bias_bits_i32'] = []
-        # input layer name
-        self.spec['input_bits_u16'] = [
-            # zhijuan
-            '/en_1_conv/en_1_conv.0/Conv', # First1
-            '/en_1_conv/en_1_conv.1/Relu',
-            
-            '/en_1_conv/en_1_conv.2/Conv', # First2
-            '/lrelu/Relu',
-
-            '/down_1_conv/down_1_conv.0/Conv', # First3
-            '/down_1_conv/down_1_conv.1/Relu',
-
-            '/down_1_conv/down_1_conv.2/Conv', # First4
-            '/lrelu_1/Relu',
-
-            '/down_2_conv/down_2_conv.0/Conv', # First5
-            '/lrelu_2/Relu',
-
-            # 最后两个conv的输入
-            '/head_conv/up_rgb/up_rgb.1/Conv', # last4
-            '/head_conv/up_rgb/up_rgb.2/Relu',
-            
-            '/up_rgb/up_rgb.0/up_rgb/up_rgb.1/Conv', # last2
-            '/up_rgb/up_rgb.0/up_rgb/up_rgb.2/Relu',
-
-            # 最后两个conv 解量化
-            # '/tail_conv/Conv', # last2
-            # '/up_rgb/up_rgb.1/Conv',
-            # '/lrelu_5/Relu' # last1
-        ]
 
     def build_quant_pipeline(
         self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
@@ -244,16 +213,6 @@ class PPL_DSP_MFNR_Quantizer(PPL_DSP_Quantizer):
         return pipeline
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
-        # 限制输入层的位宽
-        if 'input_bits_u16' in self.spec and operation.name in self.spec['input_bits_u16']:
-            self._num_of_bits = 16
-            self._quant_min = 0
-            self._quant_max = int(pow(2, self._num_of_bits) - 1)
-        else:
-            self._num_of_bits = 8
-            self._quant_min = 0
-            self._quant_max = int(pow(2, self._num_of_bits) - 1)
-
         base_quant_config = self.create_default_quant_config(
             op=operation,
             num_of_bits=self._num_of_bits,
@@ -277,6 +236,7 @@ class PPL_DSP_MFNR_Quantizer(PPL_DSP_Quantizer):
                     QuantizationProperty.LINEAR +
                     QuantizationProperty.PER_CHANNEL
                 )
+                conv_weight_config.num_of_bits = 8
                 conv_weight_config.channel_axis = 1
                 conv_weight_config.channel_axis = (1 if operation.type == 'ConvTranspose' else 0)
                 conv_weight_config.observer_algorithm = 'minmax'
@@ -299,41 +259,7 @@ class PPL_DSP_MFNR_Quantizer(PPL_DSP_Quantizer):
 
             if operation.num_of_input == 3:
                 bias_config = base_quant_config.input_quantization_config[-1]
-                if 'bias_bits_i32' in self.spec:
-                    bias_config.policy = QuantizationPolicy(
-                        QuantizationProperty.SYMMETRICAL +
-                        QuantizationProperty.LINEAR +
-                        QuantizationProperty.PER_CHANNEL
-                    )
-                    bias_config.num_of_bits = 30
-                    bias_config.quant_max = int(pow(2, 30 - 1))
-                    bias_config.quant_min = - int(pow(2, 30 - 1))
-                    bias_config.state = QuantizationStates.PASSIVE_INIT
-                    bias_config.channel_axis = 0
-                    bias_config.observer_algorithm = 'minmax'
-                elif 'bias_bits_fp32' in self.spec:
-                    bias_config.state = QuantizationStates.FP32
-
-        # only for input
-        # input_config = base_quant_config.input_quantization_config[0]
-        # if 'input_bits_u16' in self.spec:
-        #     if operation.name in self.spec['input_bits_u16']:
-        #         input_config.num_of_bits = 16
-        #         input_config.quant_min = 0
-        #         input_config.quant_max = int(pow(2, 16) - 1)
-        #         input_config.policy = QuantizationPolicy(
-        #             QuantizationProperty.ASYMMETRICAL +
-        #             QuantizationProperty.LINEAR +
-        #             QuantizationProperty.PER_TENSOR)
-        # elif 'input_bits_i32' in self.spec:
-        #     if operation.name in self.spec['input_bits_i32']:
-        #         input_config.num_of_bits = 30
-        #         input_config.quant_max = int(pow(2, 30 - 1) - 1)
-        #         input_config.quant_min = - int(pow(2, 30 - 1))
-        #         input_config.policy = QuantizationPolicy(
-        #             QuantizationProperty.SYMMETRICAL +
-        #             QuantizationProperty.LINEAR +
-        #             QuantizationProperty.PER_TENSOR)
+                bias_config.state = QuantizationStates.FP32
 
         if operation.type in PASSIVE_OPERATIONS:
             # Those op are not active op.

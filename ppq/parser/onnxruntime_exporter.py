@@ -485,7 +485,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
                 if (not var.is_parameter):
                     self.insert_normal_node(
                         graph=graph, var=inserting_var, config=config, op=inserting)
-                continue
+                    continue
 
             if var.is_parameter:
                 assert len(var.dest_ops) == 1, (
