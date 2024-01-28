@@ -12,7 +12,6 @@ from numpy import ndarray
 from torch import Tensor
 from torch import dtype as torch_type
 
-
 class DataType(Enum):
     """
         DataType defines all PPQ internal data type and its enumeration value.
@@ -48,6 +47,7 @@ class DataType(Enum):
             np_type('uint8'):   DataType.UINT8,
             np_type('int8'):    DataType.INT8,
             np_type('int16'):   DataType.INT16,
+            np_type('uint16'):   DataType.UINT16,
             np_type('int32'):   DataType.INT32,
             np_type('int64'):   DataType.INT64,
             np_type('float16'): DataType.FP16,
@@ -111,7 +111,6 @@ class DataType(Enum):
         assert isinstance(dtype, DataType)
         return torch_converting_dict[dtype]
 
-
 class TensorMeta:
     def __init__(
         self, dtype: DataType, shape: List[int],
@@ -171,7 +170,6 @@ class TensorMeta:
             return TensorMeta(dtype=self.dtype, shape=self.shape.copy(), tensor_name=self.name)
         else: return TensorMeta(dtype=self.dtype, shape=None, tensor_name=self.name)
 
-
 class OperationMeta:
     def __init__(self,
         input_metas: List[TensorMeta], output_metas: List[TensorMeta],
@@ -221,7 +219,6 @@ class OperationMeta:
             operation_name=self.operation_name, operation_type=self.operation_type, 
             executing_order=self.executing_order)
 
-
 def convert_any_to_python_primary_type(
     x: Union[torch.Tensor, np.ndarray, int, float, list, str],
     accept_none: bool=True) -> Union[int, float, list, str]:
@@ -245,7 +242,6 @@ def convert_any_to_python_primary_type(
     else:
         raise TypeError(f'input value {x}({type(x)}) can not be converted as python primary type.')
 
-
 def convert_any_to_numpy(
     x: Union[torch.Tensor, np.ndarray, int, float, list, tuple],
     accept_none: bool=True) -> np.ndarray:
@@ -261,7 +257,6 @@ def convert_any_to_numpy(
         return np.array(x)
     else:
         raise TypeError(f'input value {x}({type(x)}) can not be converted as numpy type.')
-
 
 def convert_any_to_torch_tensor(
     x: Union[torch.Tensor, np.ndarray, int, float, list, tuple],
@@ -290,14 +285,12 @@ def convert_any_to_torch_tensor(
     else:
         raise TypeError(f'input value {x}({type(x)}) can not be converted as torch tensor.')
 
-
 def convert_primary_type_to_list(
     x:Union[int, float, list, tuple]) -> list:
     if isinstance(x, list) or isinstance(x, tuple): return list(x)
     elif isinstance(x, int) or isinstance(x, float): return [x]
     else:
         raise TypeError(f'input value {x}({type(x)}) can not be converted as python list.')
-
 
 def convert_any_to_string(x: Union[torch.Tensor, np.ndarray, int, float, list, tuple]) -> str:
     if isinstance(x, int) or isinstance(x, float):

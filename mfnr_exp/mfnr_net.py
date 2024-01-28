@@ -406,3 +406,235 @@ class DualBranchUnet_v43(nn.Module):
         # features_rgb = features_rgb + dm_3c
 
         return features_rgb
+
+# refer to DualBranchUnet_v43
+class DualBranchUnet_v43_addConv1(nn.Module):
+    def __init__(self, **args):
+        super(DualBranchUnet_v43_addConv1, self).__init__()
+        self.args = args
+
+        self.head_conv = NnupConvAct2ConvActPs(in_ch=64, out_ch=16, deploy=args.get('deploy1', False))
+        self.tail_conv = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, stride=1, padding=1)
+
+        self.en_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=4*args.get('N_frame', 5), out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        )
+
+        self.down_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1),
+        )
+
+        self.down_2_conv = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
+        )
+
+        self.down_3_conv = nn.Sequential(
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1),
+        )
+
+        self.bottom_1_conv = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1)
+
+        self.up_3 = nn.Sequential(
+            nn.Conv2d(in_channels=512, out_channels=128 * 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.PixelShuffle(2),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.decoder_3_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=256 + 128, out_channels=256, kernel_size=1, padding=0),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up_2 = nn.Sequential(
+            nn.Conv2d(in_channels=256, out_channels=64 * 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.PixelShuffle(2)
+        )
+        self.decoder_2_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=128 + 64, out_channels=128, kernel_size=1, padding=0),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up_1 = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=32 * 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.PixelShuffle(2)
+        )
+        self.decoder_1_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=64 + 32, out_channels=64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.up_rgb = nn.Sequential(
+            NnupConvAct2ConvActPs(in_ch=64, out_ch=16, deploy=args.get('deploy2', False)),
+            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+        )
+
+        self.after_rgb = nn.Sequential(
+            nn.Conv2d(in_channels=16, out_channels=3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.lrelu = nn.ReLU(inplace=True)
+        self.ret_list = args.get('ret_list', None)
+
+    def forward(self, x):
+        B, F, C, H, W = x.shape
+        ft = x.reshape(B, -1, H, W)
+
+        features_en_1 = self.lrelu(self.en_1_conv(ft))
+        features_down_1 = self.lrelu(self.down_1_conv(features_en_1))
+        features_down_2 = self.lrelu(self.down_2_conv(features_down_1))
+        features_down_3 = self.lrelu(self.down_3_conv(features_down_2))
+
+        features_bottom = self.lrelu(self.bottom_1_conv(features_down_3))
+
+        features_up_3 = self.up_3(features_bottom)
+        features_de_3 = torch.cat([features_down_2, features_up_3], dim=1)
+        features_de_3 = self.decoder_3_1_conv(features_de_3)
+
+        features_up_2 = self.up_2(features_de_3)
+        features_de_2 = torch.cat([features_down_1, features_up_2], dim=1)
+        features_de_2 = self.decoder_2_1_conv(features_de_2)
+
+        features_up_1 = self.up_1(features_de_2)
+        features_de_1 = torch.cat([features_en_1, features_up_1], dim=1)
+        pre_rgb = self.decoder_1_1_conv(features_de_1)# + base_frame
+
+        features_rgb = self.up_rgb(pre_rgb)
+
+        # dm
+        # base_frame = ft[:, :4, :, :]
+        fea = self.head_conv(features_en_1)
+        dm_3c = self.tail_conv(fea)
+
+        features_rgb = self.lrelu(dm_3c + features_rgb)
+        features_rgb = self.after_rgb(features_rgb)
+
+        return features_rgb
+
+# refer to DualBranchUnet_v43
+class DualBranchUnet_v43_addConv2(nn.Module):
+    def __init__(self, **args):
+        super(DualBranchUnet_v43_addConv2, self).__init__()
+        self.args = args
+
+        self.head_conv = NnupConvAct2ConvActPs(in_ch=64, out_ch=16, deploy=args.get('deploy1', False))
+        self.tail_conv = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, stride=1, padding=1)
+
+        self.en_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=4*args.get('N_frame', 5), out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        )
+
+        self.down_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1),
+        )
+
+        self.down_2_conv = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
+        )
+
+        self.down_3_conv = nn.Sequential(
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1),
+        )
+
+        self.bottom_1_conv = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1)
+
+        self.up_3 = nn.Sequential(
+            nn.Conv2d(in_channels=512, out_channels=128 * 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.PixelShuffle(2),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.decoder_3_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=256 + 128, out_channels=256, kernel_size=1, padding=0),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up_2 = nn.Sequential(
+            nn.Conv2d(in_channels=256, out_channels=64 * 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.PixelShuffle(2)
+        )
+        self.decoder_2_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=128 + 64, out_channels=128, kernel_size=1, padding=0),
+            nn.ReLU(inplace=True),
+        )
+
+        self.up_1 = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=32 * 4, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.PixelShuffle(2)
+        )
+        self.decoder_1_1_conv = nn.Sequential(
+            nn.Conv2d(in_channels=64 + 32, out_channels=64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.up_rgb = nn.Sequential(
+            NnupConvAct2ConvActPs(in_ch=64, out_ch=16, deploy=args.get('deploy2', False)),
+            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+        )
+
+        self.after_rgb = nn.Sequential(
+            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=16, out_channels=3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.lrelu = nn.ReLU(inplace=True)
+        self.ret_list = args.get('ret_list', None)
+
+    def forward(self, x):
+        B, F, C, H, W = x.shape
+        ft = x.reshape(B, -1, H, W)
+
+        features_en_1 = self.lrelu(self.en_1_conv(ft))
+        features_down_1 = self.lrelu(self.down_1_conv(features_en_1))
+        features_down_2 = self.lrelu(self.down_2_conv(features_down_1))
+        features_down_3 = self.lrelu(self.down_3_conv(features_down_2))
+
+        features_bottom = self.lrelu(self.bottom_1_conv(features_down_3))
+
+        features_up_3 = self.up_3(features_bottom)
+        features_de_3 = torch.cat([features_down_2, features_up_3], dim=1)
+        features_de_3 = self.decoder_3_1_conv(features_de_3)
+
+        features_up_2 = self.up_2(features_de_3)
+        features_de_2 = torch.cat([features_down_1, features_up_2], dim=1)
+        features_de_2 = self.decoder_2_1_conv(features_de_2)
+
+        features_up_1 = self.up_1(features_de_2)
+        features_de_1 = torch.cat([features_en_1, features_up_1], dim=1)
+        pre_rgb = self.decoder_1_1_conv(features_de_1)# + base_frame
+
+        features_rgb = self.up_rgb(pre_rgb)
+
+        # dm
+        # base_frame = ft[:, :4, :, :]
+        fea = self.head_conv(features_en_1)
+        dm_3c = self.tail_conv(fea)
+
+        features_rgb = self.lrelu(dm_3c + features_rgb)
+        features_rgb = self.after_rgb(features_rgb)
+
+        return features_rgb

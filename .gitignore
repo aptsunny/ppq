@@ -1,3 +1,4 @@
+**/*.native
 **/*.pyc
 **/*.pth
 **/*.onnx

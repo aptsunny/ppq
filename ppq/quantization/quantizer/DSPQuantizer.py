@@ -276,7 +276,7 @@ class PPL_DSP_MFNR_Quantizer(PPL_DSP_Quantizer):
 
     @ property
     def quant_operation_types(self) -> set:
-        return {'Conv', 'Relu'}
+        return {'Conv', 'Relu', 'Concat', 'Reshape', 'Add', 'DepthToSpace'}
 
     @ property
     def quantize_policy(self) -> QuantizationPolicy:

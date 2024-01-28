@@ -23,11 +23,12 @@ class QDQHelper():
     """Helper class for processing onnx qdq format"""
     @ staticmethod
     def TQC_Exportable_Check(
-        TQC: TensorQuantizationConfig, bounded_var: Variable) -> bool:
+        TQC: TensorQuantizationConfig, bounded_var: Variable, u16_converted: bool = False) -> bool:
         if not TQC.can_export(): return False
 
         if TQC.visibility == QuantizationVisibility.INTERNAL: return False
-        if TQC.num_of_bits == 8 and TQC.policy.has_property(QuantizationProperty.LINEAR):
+        if TQC.num_of_bits in [8, 16] and TQC.policy.has_property(QuantizationProperty.LINEAR) and u16_converted: # 输出16bit 标准qdq
+        # if TQC.num_of_bits in [8, 16] and TQC.policy.has_property(QuantizationProperty.LINEAR): # 输出16bit 转换QDQ
             if TQC.policy.has_property(QuantizationProperty.ASYMMETRICAL):
                 range_check = (TQC.quant_max <= 255 and TQC.quant_min >= 0)
             else: range_check = (TQC.quant_max <= 127 and TQC.quant_min >= -128)
@@ -96,45 +97,78 @@ class ONNXRUNTIMExporter(OnnxExporter):
             无符号整型的伪量化转换
             (Clip(Round(x / scale) + zp, 0, 2 ** bit - 1) - zp) * scale
         """
+        if op.name == '/Add' and var.name == '/tail_conv/Conv_output_0':
+            index = 0
+        elif op.name == '/Add' and var.name == '/up_rgb/up_rgb.1/Conv_output_0':
+            index = 1
+        if op.name == '/Concat' and var.name == '/up_3/up_3.4/Relu_output_0':
+            index = 1
+        elif op.name == '/Concat' and var.name == '/lrelu_2/Relu_output_0':
+            index = 0
+
         value_type=torch.float32
         scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
+        offset = convert_any_to_torch_tensor(config.offset.clone(), dtype=torch.float32)
         div_node = graph.create_operation(op_type='Div')
-        graph.insert_normal_op_before(A=div_node, B=op, input_idx=0)
+        if op.name == '/Add' or op.name == '/Concat':
+            # graph.insert_normal_op_after(A=div_node, B=op, input_idx=index)
+            graph.insert_normal_op_before(A=div_node, B=op, input_idx=index)
+        else:
+            graph.insert_normal_op_before(A=div_node, B=op, input_idx=0)
         div_node.outputs[0].dtype = value_type
         div_node.outputs[0].shape = var.shape
         div_node.inputs[0].shape = var.shape
         graph.create_variable(value=scale, is_parameter=True, dest_ops=[div_node])
 
         round_node = graph.create_operation(op_type='Round')
-        graph.insert_normal_op_before(A=round_node, B=op)
+        if op.name == '/Add' or op.name == '/Concat':
+            graph.insert_normal_op_before(A=round_node, B=op, input_idx=index)
+            # graph.insert_normal_op_after(A=round_node, B=op, input_idx=index)
+        else:
+            graph.insert_normal_op_before(A=round_node, B=op)
         round_node.outputs[0].dtype = value_type
         round_node.outputs[0].shape = var.shape
         round_node.inputs[0].shape = var.shape
 
         add_node = graph.create_operation(op_type='Add')
-        graph.insert_normal_op_before(A=add_node, B=op)
+        if op.name == '/Add' or op.name == '/Concat':
+            graph.insert_normal_op_before(A=add_node, B=op, input_idx=index)
+            # graph.insert_normal_op_after(A=add_node, B=op, input_idx=index)
+        else:
+            graph.insert_normal_op_before(A=add_node, B=op)
         add_node.outputs[0].dtype = value_type
         add_node.outputs[0].shape = var.shape
         add_node.inputs[0].shape = var.shape
-        graph.create_variable(value=torch.from_numpy(np.array(0, dtype=np.float32)), is_parameter=True, dest_ops=[add_node])
+        graph.create_variable(value=torch.from_numpy(np.array(offset, dtype=np.float32)), is_parameter=True, dest_ops=[add_node])
 
         clip_node = graph.create_operation(op_type='Clip')
-        graph.insert_normal_op_before(A=clip_node, B=op)
+        if op.name == '/Add' or op.name == '/Concat':
+            # graph.insert_normal_op_after(A=clip_node, B=op, input_idx=index)
+            graph.insert_normal_op_before(A=clip_node, B=op, input_idx=index)
+        else:
+            graph.insert_normal_op_before(A=clip_node, B=op)
         clip_node.outputs[0].dtype = value_type
         clip_node.outputs[0].shape = var.shape
         clip_node.inputs[0].shape = var.shape
-        graph.create_variable(name='{:}_q_min'.format(var.name), value=torch.from_numpy(np.array(0, dtype=np.float32)), is_parameter=True, dest_ops=[clip_node])
-        graph.create_variable(name='{:}_q_max'.format(var.name), value=torch.from_numpy(np.array(65535, dtype=np.float32)), is_parameter=True, dest_ops=[clip_node])
+        graph.create_variable(value=torch.from_numpy(np.array(0, dtype=np.float32)), is_parameter=True, dest_ops=[clip_node])
+        graph.create_variable(value=torch.from_numpy(np.array(65535, dtype=np.float32)), is_parameter=True, dest_ops=[clip_node])
 
         sub_node = graph.create_operation(op_type='Sub')
-        graph.insert_normal_op_before(A=sub_node, B=op)
+        if op.name == '/Add' or op.name == '/Concat':
+            # graph.insert_normal_op_after(A=sub_node, B=op, input_idx=index)
+            graph.insert_normal_op_before(A=sub_node, B=op, input_idx=index)
+        else:
+            graph.insert_normal_op_before(A=sub_node, B=op)
         sub_node.outputs[0].dtype = value_type
         sub_node.outputs[0].shape = var.shape
         sub_node.inputs[0].shape = var.shape
-        graph.create_variable(value=torch.from_numpy(np.array(0, dtype=np.float32)), is_parameter=True, dest_ops=[sub_node])
-
+        graph.create_variable(value=torch.from_numpy(np.array(offset, dtype=np.float32)), is_parameter=True, dest_ops=[sub_node])
         mul_node = graph.create_operation(op_type='Mul')
-        graph.insert_normal_op_before(A=mul_node, B=op, need_add_var=True)
+        if op.name == '/Add' or op.name == '/Concat':
+            graph.insert_normal_op_before(A=mul_node, B=op, input_idx=index, need_add_var=True)
+            # graph.insert_normal_op_after(A=mul_node, B=op, input_idx=index, need_add_var=True)
+        else:
+            graph.insert_normal_op_before(A=mul_node, B=op, need_add_var=True)
         mul_node.outputs[0].dtype = value_type
         mul_node.outputs[0].shape = var.shape
         mul_node.inputs[0].shape = var.shape
@@ -373,6 +407,51 @@ class ONNXRUNTIMExporter(OnnxExporter):
 
         return graph
 
+    def remove_duplicated_up_quant_op(self, graph: BaseGraph) -> BaseGraph:
+        """
+        Pattern:        Quant - Dequant - Quant - Dequant
+
+        Can reduced to: Quant - Dequant
+
+        Some time there will be more than 1 quant operation inserted with a
+        single variable. This function will remove duplicated quant operation
+        from variable if it is possible.
+
+        If inserted quant operations do not share a same zeropoint and scale,
+        Then there is no way to remove any one of them.
+        
+        This function has been removed since PPQ 0.6.6, and can be replaced by function convert_operation.
+        """
+        # 这个逻辑默认是删除后边的，也就是检测上边重复的，删除后边的
+        interested_pairs = []
+        for dq_op in graph.operations.values():
+            if dq_op.type == 'DequantizeLinear':
+                if len(graph.get_downstream_operations(dq_op)) != 1:
+                    continue
+                if graph.get_downstream_operations(dq_op)[0].type != 'QuantizeLinear':
+                    continue
+                interested_pairs.append((dq_op, graph.get_upstream_operations(dq_op)[0]))
+
+        mark_to_remove = set()
+        for dq_op, qt_op in interested_pairs:
+            assert isinstance(dq_op, Operation) and isinstance(qt_op, Operation)
+            scale_diff     = torch.max(torch.abs(dq_op.inputs[1].value - qt_op.inputs[1].value)).item()
+            zeropoint_diff = torch.max(torch.abs(dq_op.inputs[2].value - qt_op.inputs[2].value)).item()
+            # if scale_diff < 1e-5 and zeropoint_diff < 0.5: # zero point 是整数，所以只要误差小于1就行了。
+            if scale_diff < 1.0 and zeropoint_diff < 0.5: # zero point 是整数，所以只要误差小于1就行了。
+                # mark quant operation and its following operation(suppose to be another dequantization op)
+                mark_to_remove.add(qt_op)
+                assert len(graph.get_downstream_operations(qt_op)) == 1, 'Oops, that should never happen.'
+                mark_to_remove.add(graph.get_downstream_operations(qt_op)[0])
+
+        for op in mark_to_remove:
+            assert isinstance(op, Operation)
+            input_var, output_var = op.inputs[0], op.outputs[0]
+            graph.remove_operation(op)
+            graph.create_link_with_var(input_var, output_var)
+
+        return graph
+
     def remove_duplicated_quant_op(self, graph: BaseGraph) -> BaseGraph:
         """
         Pattern:        Quant - Dequant - Quant - Dequant
@@ -452,7 +531,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
                 graph.create_variable(name=None, value=split, is_parameter=True, dest_ops=[op])
     
     def convert_operation(self, graph: BaseGraph, op: QuantableOperation,
-                          quantized_param: bool):
+                          quantized_param: bool, u16_converted: bool = False):
         """Convert an operation to onnx quant & dequant format by inserting
         necessary quant & dequant op around it. There are 2 ways to represent
         quantized ONNX models:
@@ -477,15 +556,24 @@ class ONNXRUNTIMExporter(OnnxExporter):
         """
         for config, var in [_ for _ in op.config_with_variable]:
             inserting, inserting_var = op, var
-            # 如果是输出层，跳过continue
-            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
-            # u16 跳过插入量化节点
-            if config.num_of_bits == 16:
-                print('\t\t\t Uint16: input {}'.format(var.name))
-                if (not var.is_parameter):
+
+            if u16_converted:
+                # u16 跳过插入量化节点
+                if (config.num_of_bits == 16 and var in op.inputs and op.type != 'Relu') or (config.num_of_bits == 16 and var in op.inputs and op.name == '/after_rgb/after_rgb.3/Relu'):
+                    # 第一个conv
+                    if op.name == '/en_1_conv/en_1_conv.0/Conv':
+                        self.insert_normal_node(
+                            graph=graph, var=inserting_var.source_op.inputs[0], config=config, op=inserting_var.source_op)
                     self.insert_normal_node(
                         graph=graph, var=inserting_var, config=config, op=inserting)
                     continue
+
+                # u16 T2 跳过插入量化节点 末尾的处理
+                if op.name == '/lrelu_5/Relu' and var.name == '/lrelu_5/Relu_output_0':
+                    continue
+                
+            # 如果是输出层，跳过continue
+            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var, u16_converted=u16_converted): continue
 
             if var.is_parameter:
                 assert len(var.dest_ops) == 1, (
@@ -536,6 +624,19 @@ class ONNXRUNTIMExporter(OnnxExporter):
                     if scale_diff < 1e-4 and zeropoint_diff < 1e-1:
                         continue
 
+                # U8 网络开头插入量化算子
+                if op.name == '/en_1_conv/en_1_conv.0/Conv':
+                    # self.insert_normal_node(
+                    #     graph=graph, var=var.source_op.inputs[0], config=config, op=var.source_op)
+                    # onnx::Reshape_0
+                    # /Reshape
+                    created_ = self.insert_quantize_node(
+                        graph=graph, var=inserting_var.source_op.inputs[0], config=config, op=inserting_var.source_op)
+                    inserting_var_ = created_.outputs[0]
+                    inserting_     = created_
+                    self.insert_dequantize_node(
+                        graph=graph, var=inserting_var_, config=config, op=inserting_)
+
                 created = self.insert_quantize_node(
                     graph=graph, var=inserting_var, config=config, op=inserting)
                 # 这里做了更新 op 和 var
@@ -549,7 +650,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
     def prepare_graph(
         self, graph: BaseGraph,
         remove_activation_fn: bool = True,
-        quant_parameter_to_int: bool = True) -> BaseGraph:
+        quant_parameter_to_int: bool = True,
+        u16_converted: bool = False) -> BaseGraph:
         """Prepare your graph for exporting.
 
         There are many works to do with your graph:
@@ -577,20 +679,22 @@ class ONNXRUNTIMExporter(OnnxExporter):
                            'QuantizeFloating', 
                            'DequantizeFloating'}: continue
 
-            self.convert_operation(graph=graph, op=op, quantized_param=quant_parameter_to_int)
+            self.convert_operation(graph=graph, op=op, quantized_param=quant_parameter_to_int, u16_converted=u16_converted)
 
         # remove activations
         if remove_activation_fn:
             # remove useless activation.
             self.remove_activation_ops(graph)
 
-        return self.remove_duplicated_quant_op(graph)
+        # return self.remove_duplicated_quant_op(graph)
+        return self.remove_duplicated_up_quant_op(graph)
 
     def export(self, file_path: str, graph: BaseGraph, 
                config_path: str = None, 
                quantized_param: bool = True,
                remove_activation: bool = True, 
-               save_as_external_data: bool = False) -> None:
+               save_as_external_data: bool = False,
+               u16_converted: bool = False) -> None:
         """
         Export PPQ Graph to Onnx QDQ format.
             This function requires a set of parameters to configure onnx format.
@@ -618,7 +722,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
         # In prepare stage, quant & dequant node are inserted into graph.
         graph = self.prepare_graph(
             graph, remove_activation_fn=remove_activation, 
-            quant_parameter_to_int=quantized_param)
+            quant_parameter_to_int=quantized_param, u16_converted=u16_converted)
 
         # if a valid config path is given, export quantization config to there.
         if config_path is not None:

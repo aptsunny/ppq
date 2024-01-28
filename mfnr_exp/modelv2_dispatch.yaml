@@ -1,0 +1,4 @@
+# /tail_conv/Conv: fp32
+# /up_rgb/up_rgb.1/Conv: fp32
+/after_rgb/after_rgb.0/Conv: fp32
+/after_rgb/after_rgb.2/Conv: fp32

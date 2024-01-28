@@ -1,0 +1,26 @@
+/en_1_conv/en_1_conv.0/Conv: 16 # First1
+/en_1_conv/en_1_conv.1/Relu: 16
+
+/en_1_conv/en_1_conv.2/Conv: 16 # First2
+/lrelu/Relu: 16
+
+# /down_1_conv/down_1_conv.0/Conv: 16 # First3
+# /down_1_conv/down_1_conv.1/Relu: 16
+
+# /down_1_conv/down_1_conv.2/Conv: 16 # First4
+# /lrelu_1/Relu: 16
+
+# /down_2_conv/down_2_conv.0/Conv: 16 # First5
+# /lrelu_2/Relu: 16
+
+# 最后两个conv的输入
+/head_conv/up_rgb/up_rgb.1/Conv: 16 # last4
+/head_conv/up_rgb/up_rgb.2/Relu: 16
+
+/up_rgb/up_rgb.0/up_rgb/up_rgb.1/Conv: 16 # last2
+/up_rgb/up_rgb.0/up_rgb/up_rgb.2/Relu: 16
+
+# 最后两个conv 解量化
+# /tail_conv/Conv: 16 # last2
+# /up_rgb/up_rgb.1/Conv: 16
+# /lrelu_5/Relu # last1

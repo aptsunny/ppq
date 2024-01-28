@@ -4,8 +4,9 @@
 import torch
 from ppq import *
 from ppq.api import *
-from mfnr_net import DualBranchUnet_v43
+from mfnr_exp.mfnr_net import DualBranchUnet_v43, DualBranchUnet_v43_addConv2
 from ppq.quantization.quantizer import PPL_DSP_MFNR_Quantizer
+from mmengine import fileio
 
 BATCHSIZE   = 2
 INPUT_SHAPE = [BATCHSIZE, 5, 4, 128, 128]
@@ -14,6 +15,13 @@ PLATFORM    = TargetPlatform.PPL_DSP_MFNR_INT8
 CALIBRATION = [torch.rand(size=INPUT_SHAPE) for _ in range(2)]
 QS          = QuantizationSettingFactory.default_setting()
 
+dispatch_nodes = fileio.load('mfnr_exp/modelv2_dispatch.yaml')
+if dispatch_nodes:
+    for i in list(dispatch_nodes.keys()):
+        QS.dispatching_table.append(
+            operation=i, platform=TargetPlatform.FP32)
+
+u16_nodes = fileio.load('mfnr_exp/modelv2_u16.yaml')
 
 class DecrementQuantizer(PPL_DSP_MFNR_Quantizer):
     """
@@ -21,38 +29,10 @@ class DecrementQuantizer(PPL_DSP_MFNR_Quantizer):
     """
     def init_quantize_config(
         self, operation: Operation) -> OperationQuantizationConfig:
-        # 限制输入层的位宽
-        self.spec = dict()
-        self.spec['bias_bits_i32'] = []
-        self.spec['input_bits_u16'] = [
-            # zhijuan
-            '/en_1_conv/en_1_conv.0/Conv', # First1
-            '/en_1_conv/en_1_conv.1/Relu',
-            
-            '/en_1_conv/en_1_conv.2/Conv', # First2
-            '/lrelu/Relu',
+        self.spec = {"bias_bits_i32": []}
+        # 通过配置文件给到u16的层
+        self.spec['input_bits_u16'] = list(u16_nodes.keys())
 
-            # '/down_1_conv/down_1_conv.0/Conv', # First3
-            # '/down_1_conv/down_1_conv.1/Relu',
-
-            # '/down_1_conv/down_1_conv.2/Conv', # First4
-            # '/lrelu_1/Relu',
-
-            # '/down_2_conv/down_2_conv.0/Conv', # First5
-            # '/lrelu_2/Relu',
-
-            # 最后两个conv的输入
-            '/head_conv/up_rgb/up_rgb.1/Conv', # last4
-            '/head_conv/up_rgb/up_rgb.2/Relu',
-            
-            '/up_rgb/up_rgb.0/up_rgb/up_rgb.1/Conv', # last2
-            '/up_rgb/up_rgb.0/up_rgb/up_rgb.2/Relu',
-
-            # 最后两个conv 解量化
-            # '/tail_conv/Conv', # last2
-            # '/up_rgb/up_rgb.1/Conv',
-            # '/lrelu_5/Relu' # last1
-        ]
         if 'input_bits_u16' in self.spec and operation.name in self.spec['input_bits_u16']:
             self._num_of_bits = 16
             self._quant_min = 0
@@ -118,15 +98,11 @@ register_network_quantizer(
     quantizer=DecrementQuantizer,
     platform=TargetPlatform.PPL_DSP_MFNR_INT8)
 
-
-QS.dispatching_table.append(
-    operation='/tail_conv/Conv', platform=TargetPlatform.FP32)
-QS.dispatching_table.append(
-    operation='/up_rgb/up_rgb.1/Conv', platform=TargetPlatform.FP32)
 def collate_fn(batch: torch.Tensor) -> torch.Tensor:
     return batch.to(DEVICE)
 
-model = DualBranchUnet_v43()
+# model = DualBranchUnet_v43()
+model = DualBranchUnet_v43_addConv2(deploy1=True, deploy2=True)
 model = model.to(DEVICE)
 
 quantized = quantize_torch_model(
@@ -135,34 +111,38 @@ quantized = quantize_torch_model(
     collate_fn=collate_fn, platform=PLATFORM, setting=QS,
     onnx_export_file='onnx.model', device=DEVICE, verbose=0)
 
-reports = layerwise_error_analyse(
-    graph=quantized, running_device=DEVICE, 
-    collate_fn=collate_fn, dataloader=CALIBRATION)
+# reports = layerwise_error_analyse(
+#     graph=quantized, running_device=DEVICE, 
+#     collate_fn=collate_fn, dataloader=CALIBRATION)
+
+# remove_activation 也影响导出的QDQ, 模型激活函数显示
+export_ppq_graph(
+    remove_activation=False,
+    graph=quantized, platform=TargetPlatform.ONNXRUNTIME,
+    graph_save_to='model.onnx',
+    u16_converted=True)
+
+from ppq.parser import NativeExporter
+exporter = NativeExporter()
+exporter.export(
+    file_path='model.native',
+    graph=quantized)
+
+load_graph_re = load_native_graph(import_file='model.native')
+
+if dispatch_nodes:
+    for i in list(dispatch_nodes.keys()):
+        QS.dispatching_table.append(
+            operation=i, platform=TargetPlatform.PPL_DSP_MFNR_INT8)
+
+re_quantized = quantize_native_model(
+    model=load_graph_re, calib_dataloader=CALIBRATION,
+    calib_steps=8, input_shape=INPUT_SHAPE,
+    collate_fn=collate_fn, platform=PLATFORM, setting=QS,
+    device=DEVICE, verbose=0)
 
 export_ppq_graph(
-    graph=quantized, platform=TargetPlatform.ONNXRUNTIME,
-    graph_save_to='model.onnx')
-
-# from ppq.parser import NativeExporter
-# exporter = NativeExporter()
-# exporter.export(
-#     file_path='model.native',
-#     graph=quantized)
-
-
-# load_graph_re = load_native_graph(import_file='model.native')
-
-# re_quantized = quantize_native_model(
-#     model=load_graph_re, calib_dataloader=CALIBRATION,
-#     calib_steps=8, input_shape=INPUT_SHAPE,
-#     collate_fn=collate_fn, platform=PLATFORM, setting=QS,
-#     device=DEVICE, verbose=0)
-
-# QS.dispatching_table.append(
-#     operation='/tail_conv/Conv', platform=TargetPlatform.PPL_DSP_MFNR_INT8)
-# QS.dispatching_table.append(
-#     operation='/up_rgb/up_rgb.1/Conv', platform=TargetPlatform.PPL_DSP_MFNR_INT8)
-
-# export_ppq_graph(
-#     graph=re_quantized, platform=TargetPlatform.ONNXRUNTIME,
-#     graph_save_to='model_re.onnx')
+    remove_activation=False,
+    graph=re_quantized, platform=TargetPlatform.ONNXRUNTIME,
+    graph_save_to='model_re.onnx',
+    u16_converted=True)
