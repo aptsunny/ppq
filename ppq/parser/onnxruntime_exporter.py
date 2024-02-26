@@ -41,7 +41,6 @@ class QDQHelper():
             return False
         return True
 
-
 class ONNXRUNTIMExporter(OnnxExporter):
     """
     PPQ 可以将 TQC 中的量化信息导出为 Onnx QDQ 节点。
@@ -79,8 +78,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
             value_dtype  = torch.uint8
         elif config.num_of_bits > 8 and config.num_of_bits == 16:
             # 仅仅为了导出 onnx 查看, 用于检查&解析u16的输入
-            offset_dtype = np_type('uint16')
-            value_dtype  = np_type('uint16')
+            offset_dtype = torch.int16
+            value_dtype  = torch.int16
         elif config.num_of_bits > 8 and config.num_of_bits != 16:
             offset_dtype = torch.int32
             value_dtype  = torch.int32
@@ -90,28 +89,26 @@ class ONNXRUNTIMExporter(OnnxExporter):
     def insert_normal_node(
         self, graph: BaseGraph,
         var: Variable, config: TensorQuantizationConfig,
-        op: Operation) -> Operation:
+        op: Operation,
+        u16_cfg: dict = None) -> Operation:
         """
             有符号整型的伪量化转换
             (Clip(Round(x / scale) + zp, -2 ** (bit - 1), 2 ** (bit - 1) - 1) - zp) * scale
             无符号整型的伪量化转换
             (Clip(Round(x / scale) + zp, 0, 2 ** bit - 1) - zp) * scale
         """
-        if op.name == '/Add' and var.name == '/tail_conv/Conv_output_0':
-            index = 0
-        elif op.name == '/Add' and var.name == '/up_rgb/up_rgb.1/Conv_output_0':
-            index = 1
-        if op.name == '/Concat' and var.name == '/up_3/up_3.4/Relu_output_0':
-            index = 1
-        elif op.name == '/Concat' and var.name == '/lrelu_2/Relu_output_0':
-            index = 0
 
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
+            if u16_cfg[op.name][0] == var.name:
+                index = 0
+            else:
+                index = 1
         value_type=torch.float32
         scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
         offset = convert_any_to_torch_tensor(config.offset.clone(), dtype=torch.float32)
         div_node = graph.create_operation(op_type='Div')
-        if op.name == '/Add' or op.name == '/Concat':
-            # graph.insert_normal_op_after(A=div_node, B=op, input_idx=index)
+        
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
             graph.insert_normal_op_before(A=div_node, B=op, input_idx=index)
         else:
             graph.insert_normal_op_before(A=div_node, B=op, input_idx=0)
@@ -121,7 +118,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
         graph.create_variable(value=scale, is_parameter=True, dest_ops=[div_node])
 
         round_node = graph.create_operation(op_type='Round')
-        if op.name == '/Add' or op.name == '/Concat':
+        
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
             graph.insert_normal_op_before(A=round_node, B=op, input_idx=index)
             # graph.insert_normal_op_after(A=round_node, B=op, input_idx=index)
         else:
@@ -131,9 +129,9 @@ class ONNXRUNTIMExporter(OnnxExporter):
         round_node.inputs[0].shape = var.shape
 
         add_node = graph.create_operation(op_type='Add')
-        if op.name == '/Add' or op.name == '/Concat':
+
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
             graph.insert_normal_op_before(A=add_node, B=op, input_idx=index)
-            # graph.insert_normal_op_after(A=add_node, B=op, input_idx=index)
         else:
             graph.insert_normal_op_before(A=add_node, B=op)
         add_node.outputs[0].dtype = value_type
@@ -142,8 +140,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
         graph.create_variable(value=torch.from_numpy(np.array(offset, dtype=np.float32)), is_parameter=True, dest_ops=[add_node])
 
         clip_node = graph.create_operation(op_type='Clip')
-        if op.name == '/Add' or op.name == '/Concat':
-            # graph.insert_normal_op_after(A=clip_node, B=op, input_idx=index)
+
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
             graph.insert_normal_op_before(A=clip_node, B=op, input_idx=index)
         else:
             graph.insert_normal_op_before(A=clip_node, B=op)
@@ -154,8 +152,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
         graph.create_variable(value=torch.from_numpy(np.array(65535, dtype=np.float32)), is_parameter=True, dest_ops=[clip_node])
 
         sub_node = graph.create_operation(op_type='Sub')
-        if op.name == '/Add' or op.name == '/Concat':
-            # graph.insert_normal_op_after(A=sub_node, B=op, input_idx=index)
+
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
             graph.insert_normal_op_before(A=sub_node, B=op, input_idx=index)
         else:
             graph.insert_normal_op_before(A=sub_node, B=op)
@@ -164,9 +162,9 @@ class ONNXRUNTIMExporter(OnnxExporter):
         sub_node.inputs[0].shape = var.shape
         graph.create_variable(value=torch.from_numpy(np.array(offset, dtype=np.float32)), is_parameter=True, dest_ops=[sub_node])
         mul_node = graph.create_operation(op_type='Mul')
-        if op.name == '/Add' or op.name == '/Concat':
+
+        if u16_cfg and op.name in u16_cfg['mutli_input']:
             graph.insert_normal_op_before(A=mul_node, B=op, input_idx=index, need_add_var=True)
-            # graph.insert_normal_op_after(A=mul_node, B=op, input_idx=index, need_add_var=True)
         else:
             graph.insert_normal_op_before(A=mul_node, B=op, need_add_var=True)
         mul_node.outputs[0].dtype = value_type
@@ -187,11 +185,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
             # That is for FP32 -> INT
             offset_dtype, value_type = self.infer_qtype(config)
             scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
-            try:
-                offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
-            except:
-                # 使用u8替换一下
-                offset = ppq_tensor_round(config.offset.clone()).type(torch.uint8)
+            offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
 
             created = graph.create_operation(op_type='QuantizeLinear', attributes={})
             if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
@@ -255,11 +249,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
         if config.policy.has_property(QuantizationProperty.LINEAR):
             offset_dtype, value_type = self.infer_qtype(config)
             scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
-            try:
-                offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
-            except:
-                # 特意给一个u16的scale提醒
-                offset = ppq_tensor_round(config.offset.clone()).type(torch.uint8)
+            offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
             created = graph.create_operation(op_type='DequantizeLinear', attributes={})
             if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
                 created.attributes['axis'] = config.channel_axis
@@ -467,7 +457,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
         
         This function has been removed since PPQ 0.6.6, and can be replaced by function convert_operation.
         """
-        return graph
+        # return graph
         interested_pairs = []
         for qt_op in graph.operations.values():
             if qt_op.type == 'QuantizeLinear':
@@ -531,7 +521,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
                 graph.create_variable(name=None, value=split, is_parameter=True, dest_ops=[op])
     
     def convert_operation(self, graph: BaseGraph, op: QuantableOperation,
-                          quantized_param: bool, u16_converted: bool = False):
+                          quantized_param: bool, u16_converted: bool = False, u16_cfg: dict = None):
         """Convert an operation to onnx quant & dequant format by inserting
         necessary quant & dequant op around it. There are 2 ways to represent
         quantized ONNX models:
@@ -559,18 +549,20 @@ class ONNXRUNTIMExporter(OnnxExporter):
 
             if u16_converted:
                 # u16 跳过插入量化节点
-                if (config.num_of_bits == 16 and var in op.inputs and op.type != 'Relu') or (config.num_of_bits == 16 and var in op.inputs and op.name == '/after_rgb/after_rgb.3/Relu'):
+                # if (config.num_of_bits == 16 and var in op.inputs and op.type != 'Relu') or (config.num_of_bits == 16 and var in op.inputs and op.name == '/after_rgb/after_rgb.3/Relu'):
+                if (config.num_of_bits == 16 and var in op.inputs and op.type != 'Relu') or (config.num_of_bits == 16 and var in op.inputs and op.name == u16_cfg['output_u16']):
                     # 第一个conv
-                    if op.name == '/en_1_conv/en_1_conv.0/Conv':
+                    # if op.name == '/en_1_conv/en_1_conv.0/Conv':
+                    if op.name == u16_cfg['input_u16']:
                         self.insert_normal_node(
                             graph=graph, var=inserting_var.source_op.inputs[0], config=config, op=inserting_var.source_op)
                     self.insert_normal_node(
-                        graph=graph, var=inserting_var, config=config, op=inserting)
+                        graph=graph, var=inserting_var, config=config, op=inserting, u16_cfg=u16_cfg)
                     continue
 
                 # u16 T2 跳过插入量化节点 末尾的处理
-                if op.name == '/lrelu_5/Relu' and var.name == '/lrelu_5/Relu_output_0':
-                    continue
+                # if op.name == '/lrelu_5/Relu' and var.name == '/lrelu_5/Relu_output_0':
+                #     continue
                 
             # 如果是输出层，跳过continue
             if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var, u16_converted=u16_converted): continue
@@ -625,7 +617,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
                         continue
 
                 # U8 网络开头插入量化算子
-                if op.name == '/en_1_conv/en_1_conv.0/Conv':
+                # if op.name == '/en_1_conv/en_1_conv.0/Conv':
+                if op.name == u16_cfg['input_u16']:
                     # self.insert_normal_node(
                     #     graph=graph, var=var.source_op.inputs[0], config=config, op=var.source_op)
                     # onnx::Reshape_0
@@ -651,7 +644,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
         self, graph: BaseGraph,
         remove_activation_fn: bool = True,
         quant_parameter_to_int: bool = True,
-        u16_converted: bool = False) -> BaseGraph:
+        u16_converted: bool = False,
+        u16_cfg: dict = None) -> BaseGraph:
         """Prepare your graph for exporting.
 
         There are many works to do with your graph:
@@ -679,7 +673,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
                            'QuantizeFloating', 
                            'DequantizeFloating'}: continue
 
-            self.convert_operation(graph=graph, op=op, quantized_param=quant_parameter_to_int, u16_converted=u16_converted)
+            self.convert_operation(graph=graph, op=op, quantized_param=quant_parameter_to_int, u16_converted=u16_converted, u16_cfg=u16_cfg)
 
         # remove activations
         if remove_activation_fn:
@@ -694,7 +688,8 @@ class ONNXRUNTIMExporter(OnnxExporter):
                quantized_param: bool = True,
                remove_activation: bool = True, 
                save_as_external_data: bool = False,
-               u16_converted: bool = False) -> None:
+               u16_converted: bool = False,
+               u16_cfg: dict = None) -> None:
         """
         Export PPQ Graph to Onnx QDQ format.
             This function requires a set of parameters to configure onnx format.
@@ -722,7 +717,7 @@ class ONNXRUNTIMExporter(OnnxExporter):
         # In prepare stage, quant & dequant node are inserted into graph.
         graph = self.prepare_graph(
             graph, remove_activation_fn=remove_activation, 
-            quant_parameter_to_int=quantized_param, u16_converted=u16_converted)
+            quant_parameter_to_int=quantized_param, u16_converted=u16_converted, u16_cfg=u16_cfg)
 
         # if a valid config path is given, export quantization config to there.
         if config_path is not None:

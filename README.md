@@ -1,3 +1,12 @@
+## DSPDecrementQuantizer
+
+针对 DSP 首尾退化为16bit的量化器的实现，这也是MFNRQ的主要约束。其中以下配置文件用于 **量化信息** 以及 **量化导出**。
+
+- `mfnr_exp/modelv5_all_u16.yaml`
+- `mfnr_exp/modelv5_dispatch.yaml`
+- `mfnr_exp/modelv5_u16_cfg.yaml`
+
+
 ## Project hierarchy 代码结构
 
 * IR - PPQ 量化计算图定义，以及图上相关操作(算子变换, 算子融合等)，量化计算图是基于 onnx 标准的
