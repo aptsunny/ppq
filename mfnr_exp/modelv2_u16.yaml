@@ -1,0 +1,57 @@
+/en_1_conv/en_1_conv.0/Conv: 16 # First1
+/en_1_conv/en_1_conv.1/Relu: 16
+/en_1_conv/en_1_conv.2/Conv: 16 
+/lrelu/Relu: 16
+
+/down_1_conv/down_1_conv.0/Conv: 16 
+/down_1_conv/down_1_conv.1/Relu: 16
+
+/down_1_conv/down_1_conv.2/Conv: 16 
+/lrelu_1/Relu: 16
+
+/down_2_conv/down_2_conv.0/Conv: 16
+/down_2_conv/down_2_conv.1/Relu: 16
+
+/down_2_conv/down_2_conv.2/Conv: 16
+/lrelu_2/Relu: 16
+
+/down_3_conv/down_3_conv.0/Conv: 16
+/down_3_conv/down_3_conv.1/Relu: 16
+
+/down_3_conv/down_3_conv.2/Conv: 16 
+/lrelu_3/Relu: 16
+
+/bottom_1_conv/Conv: 16
+/lrelu_4/Relu: 16
+
+/up_3/up_3.0/Conv: 16 # First10
+/up_3/up_3.1/Relu: 16
+
+/up_3/up_3.2/DepthToSpace: 16
+
+/up_3/up_3.3/Conv: 16
+/up_3/up_3.4/Relu: 16
+
+/Concat: 16
+/decoder_3_1_conv/decoder_3_1_conv.0/Conv: 16 # First1N
+
+# 第五个
+# '/decoder_1_1_conv/decoder_1_1_conv.0/Conv',
+# '/decoder_1_1_conv/decoder_1_1_conv.1/Relu',
+
+# 最后两个conv的输入
+# '/head_conv/up_rgb/up_rgb.1/Conv', # last4
+# '/head_conv/up_rgb/up_rgb.2/Relu',
+# '/up_rgb/up_rgb.0/up_rgb/up_rgb.1/Conv', # last2
+# '/up_rgb/up_rgb.0/up_rgb/up_rgb.2/Relu',
+
+# add + relu                
+# '/tail_conv/Conv', # last2
+# '/up_rgb/up_rgb.1/Conv', # conv 的输入和 d2s的输出是冲突的
+# '/Add',
+# '/lrelu_5/Relu'
+
+/after_rgb/after_rgb.0/Conv: 16
+/after_rgb/after_rgb.1/Relu: 16 
+/after_rgb/after_rgb.2/Conv: 16
+/after_rgb/after_rgb.3/Relu: 16

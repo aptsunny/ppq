@@ -77,6 +77,7 @@ class TargetPlatform(Enum):
     SNPE_INT8     = 302
     PPL_DSP_TI_INT8 = 303
     QNN_DSP_INT8  = 304
+    PPL_DSP_MFNR_INT8 = 305
 
     HOST_INT8 = 401
 
@@ -84,6 +85,7 @@ class TargetPlatform(Enum):
     FPGA_INT8 = 502
 
     RKNN_INT8 = 601
+    RKNN_CHANNEL_INT8 = 602
 
     METAX_INT8_C = 701 # channel wise
     METAX_INT8_T = 702 # tensor wise
@@ -114,8 +116,10 @@ class TargetPlatform(Enum):
     def is_quantized_platform(cls, platform) -> bool:
         # removed since PPQ 0.6.6
         return platform in {
+            cls.PPL_DSP_MFNR_INT8,
             cls.PPL_DSP_INT8, cls.PPL_DSP_TI_INT8, cls.QNN_DSP_INT8, cls.TRT_INT8, cls.NCNN_INT8, cls.NXP_INT8,
             cls.SNPE_INT8, cls.PPL_CUDA_INT8, cls.PPL_CUDA_INT4, cls.EXTENSION, cls.PPL_CUDA_MIX, cls.RKNN_INT8,
+            cls.RKNN_CHANNEL_INT8,
             cls.METAX_INT8_C, cls.METAX_INT8_T, cls.OPENVINO_INT8, cls.FPGA_INT8, cls.TENGINE_INT8, 
             cls.FP8, cls.GRAPHCORE_FP8, cls.TRT_FP8, cls.ASC_INT8, cls.UNSPECIFIED, cls.INT8, cls.MNN_INT8}
 

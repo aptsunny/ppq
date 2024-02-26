@@ -6,9 +6,9 @@ def readme():
         content = f.read()
     return content
 
-setup(author='ppq',
-      author_email='dcp-ppq@sensetime.com',
-      description='PPQ is an offline quantization tools',
+setup(author='Sy',
+      author_email='sunyue17@xxx.com',
+      description='An offline quantization tool designed for image quality-oriented algorithm models',
       long_description=readme(),
       long_description_content_type='text/markdown',
       install_requires=open('requirements.txt').readlines(),

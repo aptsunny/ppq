@@ -5,6 +5,7 @@ import torch
 from .base.graph import BaseGraph
 from .processer import GraphCommandProcessor
 
+from ppq.core import DataType
 
 class TrainableGraph(GraphCommandProcessor):
     """ Trainable Graph offers a bunch of functions that provide training interfaces. """
@@ -15,20 +16,20 @@ class TrainableGraph(GraphCommandProcessor):
     def parameters(self) -> List[torch.Tensor]:
         parameters = []
         for var in self.graph.variables.values():
-            if var.is_parameter and var.dtype == torch.float:
+            if var.is_parameter and DataType.to_torch(var.dtype) == torch.float:
                 parameters.append(var.value)
         return parameters
 
     def zero_grad(self):
         for var in self.graph.variables.values():
-            if var.is_parameter and var.dtype == torch.float:
+            if var.is_parameter and DataType.to_torch(var.dtype) == torch.float:
                 if var.value._grad is not None:
                     var.value._grad.zero_()
 
     def state_dict(self) -> dict:
         parameters = {}
         for var in self.graph.variables.values():
-            if var.is_parameter and var.dtype == torch.float:
+            if var.is_parameter and DataType.to_torch(var.dtype) == torch.float:
                 parameters[var.name] = var.value
         return parameters
 

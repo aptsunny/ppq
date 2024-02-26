@@ -58,7 +58,8 @@ SOI_OP = {'TopK', 'Shape', 'NonMaxSuppression'}
 
 # 强制联合定点的算子种类
 TYPES_FOR_ALIGNMENT = {
-    'Elementwise': {'Add', 'Sub', 'Sum'}, 
+    # 'Elementwise': {'Add', 'Sub', 'Sum'}, 
+    'Elementwise': {'Sub', 'Sum'}, # ADD 两侧可以scale不对齐
     'Concat': {'Concat'}, 
     'Pooling': {'AveragePool', 'GlobalAveragePool'}}
 # 强制联合定点手动覆盖

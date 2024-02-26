@@ -24,9 +24,13 @@ class PPL_DSP_Quantizer(BaseQuantizer):
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
         base_quant_config = self.create_default_quant_config(
-            op=operation, num_of_bits=self._num_of_bits, exponent_bits=0,
-            quant_max=self._quant_max, quant_min=self._quant_min,
-            observer_algorithm='percentile', policy=self.quantize_policy,
+            op=operation,
+            num_of_bits=self._num_of_bits,
+            exponent_bits=0,
+            quant_max=self._quant_max,
+            quant_min=self._quant_min,
+            observer_algorithm='percentile',
+            policy=self.quantize_policy,
             rounding=self.rounding_policy,
         )
 
@@ -139,17 +143,7 @@ class PPL_DSP_TI_Quantizer(PPL_DSP_Quantizer):
 
             # first parameter must exits, for conv layer it will be conv_weight
             # layout: [out_channel, in_channel, kernel_size, kernel_size]
-            if operation.type == 'Conv':
-                conv_weight_config = base_quant_config.input_quantization_config[1]
-                conv_weight_config.policy = QuantizationPolicy(
-                    QuantizationProperty.SYMMETRICAL +
-                    QuantizationProperty.LINEAR +
-                    QuantizationProperty.PER_CHANNEL
-                )
-                conv_weight_config.channel_axis = 0
-                conv_weight_config.observer_algorithm = 'minmax'
-
-            elif operation.type == 'ConvTranspose':
+            if operation.type in {'Conv', 'ConvTranspose'}:
                 conv_weight_config = base_quant_config.input_quantization_config[1]
                 conv_weight_config.policy = QuantizationPolicy(
                     QuantizationProperty.SYMMETRICAL +
@@ -157,6 +151,7 @@ class PPL_DSP_TI_Quantizer(PPL_DSP_Quantizer):
                     QuantizationProperty.PER_CHANNEL
                 )
                 conv_weight_config.channel_axis = 1
+                conv_weight_config.channel_axis = (1 if operation.type == 'ConvTranspose' else 0)
                 conv_weight_config.observer_algorithm = 'minmax'
 
             # first parameter must exits, for gemm layer it will be gemm_weight
@@ -200,4 +195,102 @@ class PPL_DSP_TI_Quantizer(PPL_DSP_Quantizer):
 
     @ property
     def activation_fusion_types(self) -> set:
+        return {'Relu', 'Clip'}
+
+
+class PPL_DSP_MFNR_Quantizer(PPL_DSP_Quantizer):
+    def __init__(self, graph: BaseGraph, spec: dict = {}) -> Union[torch.Tensor, list, dict]:
+        """
+        mfnr + dsp -> w8a8
+        """
+        super().__init__(graph)
+        self.spec = spec
+
+    def build_quant_pipeline(
+        self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
+        pipeline = super().build_quant_pipeline(setting)
+        # pipeline.append_optimization_to_pipeline(PPLDSPTIReCalibrationPass())
+        return pipeline
+
+    def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
+        base_quant_config = self.create_default_quant_config(
+            op=operation,
+            num_of_bits=self._num_of_bits,
+            exponent_bits=0,
+            quant_max=self._quant_max,
+            quant_min=self._quant_min,
+            observer_algorithm='percentile',
+            policy=self.quantize_policy,
+            rounding=self.rounding_policy,
+        )
+        if operation.type in {'Conv', 'ConvTranspose', 'Gemm'}:
+            # set all parameters within Conv, ConvTranspose, Gemm to per-channel quant-config.
+            assert operation.num_of_input > 0, 'Seems you got a Conv layer with no parameters.'
+
+            # first parameter must exits, for conv layer it will be conv_weight
+            # layout: [out_channel, in_channel, kernel_size, kernel_size]
+            if operation.type in {'Conv', 'ConvTranspose'}:
+                conv_weight_config = base_quant_config.input_quantization_config[1]
+                conv_weight_config.policy = QuantizationPolicy(
+                    QuantizationProperty.SYMMETRICAL +
+                    QuantizationProperty.LINEAR +
+                    QuantizationProperty.PER_CHANNEL
+                )
+                conv_weight_config.num_of_bits = 8
+                conv_weight_config.channel_axis = 1
+                conv_weight_config.channel_axis = (1 if operation.type == 'ConvTranspose' else 0)
+                conv_weight_config.observer_algorithm = 'minmax'
+                conv_weight_config.quant_max = 127
+                conv_weight_config.quant_min = -128
+
+            # first parameter must exits, for gemm layer it will be gemm_weight
+            # layout: [in_dim, out_dim]
+            elif operation.type == 'Gemm':
+                gemm_weight_config = base_quant_config.input_quantization_config[1]
+                gemm_weight_config.policy = QuantizationPolicy(
+                    QuantizationProperty.SYMMETRICAL +
+                    QuantizationProperty.LINEAR +
+                    QuantizationProperty.PER_CHANNEL
+                )
+                gemm_weight_config.channel_axis = 0
+                gemm_weight_config.observer_algorithm = 'minmax'
+                gemm_weight_config.quant_max = 127
+                gemm_weight_config.quant_min = -128
+
+            if operation.num_of_input == 3:
+                bias_config = base_quant_config.input_quantization_config[-1]
+                bias_config.state = QuantizationStates.FP32
+
+        if operation.type in PASSIVE_OPERATIONS:
+            # Those op are not active op.
+            base_quant_config.is_active_quant_op = False
+        return base_quant_config
+
+    @ property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.PPL_DSP_MFNR_INT8
+
+    @ property
+    def default_platform(self) -> TargetPlatform:
+        return TargetPlatform.FP32
+
+    @ property
+    def quant_operation_types(self) -> set:
+        return {'Conv', 'Relu', 'Concat', 'Reshape', 'Add', 'DepthToSpace'}
+
+    @ property
+    def quantize_policy(self) -> QuantizationPolicy:
+        return QuantizationPolicy(
+            QuantizationProperty.ASYMMETRICAL +
+            QuantizationProperty.LINEAR +
+            QuantizationProperty.PER_TENSOR
+        )
+
+    @ property
+    def activation_fusion_types(self) -> set:
+        # 列举此处的算子会与他们之前的 卷积 和 矩阵乘法执行激活函数图融合
+        # 从而消去一些错误的量化行为，对于更为复杂的图融合，你必须手写一个单独的优化过程
+        # 不过我们这里没有声明 relu, clip 是量化类型，因此图融合并不会起作用
+        
+        # 图融合起作用的前提是参与融合的所有算子，全部都需要被量化
         return {'Relu', 'Clip'}

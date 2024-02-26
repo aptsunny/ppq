@@ -1,0 +1,6 @@
+input_u16: /en_1_conv/en_1_conv.0/Conv
+output_u16: /tail_conv/tail_conv.3/Relu
+mutli_input: [/Concat, /Concat_1, /Concat_2] 
+/Concat: [/lrelu_2/Relu_output_0, /up_3/up_3.2/DepthToSpace_output_0]
+/Concat_1: [/lrelu/Relu_output_0, '/up_1/up_1.4/Relu_output_0']
+/Concat_2: ['/head_conv/up_rgb/up_rgb.2/DepthToSpace_output_0', /up_rgb/up_rgb.0/up_rgb/up_rgb.2/DepthToSpace_output_0]
